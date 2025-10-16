@@ -142,6 +142,14 @@
                 await generateAIImage();
             })
     );
+    menu.addItem((item) =>
+        item
+            .setIcon("camera")
+            .setTitle("Generate AI Image from Photo")
+            .onClick(async () => {
+                await generateAIImageFromPhoto();
+            })
+    );
     if (canDice)
         menu.addItem((item) =>
             item
@@ -156,6 +164,67 @@
         menu.showAtMouseEvent(evt);
     };
 
+    async function applyGeneratedImage(imagePath: string) {
+        // Update monster image in memory
+        monster.image = imagePath;
+        monsterStore.set(monster);
+
+        // Try to update frontmatter if this is a file-based creature
+        let sourceFile: string | null = null;
+
+        // Priority 1: Use monster.path if available
+        if (monster.path) {
+            sourceFile = monster.path;
+        }
+        // Priority 2: Use monster.note and resolve it
+        else if (monster.note) {
+            const notePath = Array.isArray(monster.note)
+                ? monster.note.flat(Infinity).pop()
+                : monster.note;
+            const file = plugin.app.metadataCache.getFirstLinkpathDest(
+                notePath as string,
+                context
+            );
+            if (file) {
+                sourceFile = file.path;
+            }
+        }
+        // Priority 3: Use context if it's a markdown file
+        else if (context && context.endsWith(".md")) {
+            sourceFile = context;
+        }
+
+        // Update frontmatter if we found a source file
+        if (sourceFile) {
+            const updated = await OpenAIImageGenerator.updateCreatureFrontmatter(
+                plugin.app,
+                sourceFile,
+                imagePath
+            );
+            if (updated) {
+                new Notice(`Image updated in ${sourceFile.split("/").pop()}`);
+            }
+        }
+    }
+
+    async function selectPhotoFile(): Promise<File | null> {
+        return new Promise((resolve) => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "image/*";
+            input.capture = "environment";
+            input.style.position = "fixed";
+            input.style.opacity = "0";
+            input.addEventListener("change", () => {
+                const file = input.files?.[0] ?? null;
+                input.remove();
+                resolve(file);
+            });
+            document.body.appendChild(input);
+            input.click();
+        });
+    }
+
     async function generateAIImage() {
         try {
             const imagePath = await OpenAIImageGenerator.generateMonsterImage(
@@ -168,48 +237,34 @@
                 }
             );
 
-            // Update monster image in memory
-            monster.image = imagePath;
-            monsterStore.set(monster);
-
-            // Try to update frontmatter if this is a file-based creature
-            let sourceFile: string | null = null;
-
-            // Priority 1: Use monster.path if available
-            if (monster.path) {
-                sourceFile = monster.path;
-            }
-            // Priority 2: Use monster.note and resolve it
-            else if (monster.note) {
-                const notePath = Array.isArray(monster.note)
-                    ? monster.note.flat(Infinity).pop()
-                    : monster.note;
-                const file = plugin.app.metadataCache.getFirstLinkpathDest(
-                    notePath as string,
-                    context
-                );
-                if (file) {
-                    sourceFile = file.path;
-                }
-            }
-            // Priority 3: Use context if it's a markdown file
-            else if (context && context.endsWith(".md")) {
-                sourceFile = context;
-            }
-
-            // Update frontmatter if we found a source file
-            if (sourceFile) {
-                const updated = await OpenAIImageGenerator.updateCreatureFrontmatter(
-                    plugin.app,
-                    sourceFile,
-                    imagePath
-                );
-                if (updated) {
-                    new Notice(`Image updated in ${sourceFile.split("/").pop()}`);
-                }
-            }
+            await applyGeneratedImage(imagePath);
         } catch (error) {
             console.error("AI Image Generation Error:", error);
+        }
+    }
+
+    async function generateAIImageFromPhoto() {
+        try {
+            const photo = await selectPhotoFile();
+            if (!photo) {
+                return;
+            }
+
+            const imagePath =
+                await OpenAIImageGenerator.generateMonsterImageFromPhoto(
+                    monster,
+                    plugin.app.vault,
+                    photo,
+                    {
+                        apiKey: plugin.settings.openAIApiKey,
+                        style: plugin.settings.openAIDefaultStyle,
+                        saveFolder: plugin.settings.openAIImageSaveFolder
+                    }
+                );
+
+            await applyGeneratedImage(imagePath);
+        } catch (error) {
+            console.error("AI Image Generation from Photo Error:", error);
         }
     }
 
