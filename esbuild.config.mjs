@@ -59,6 +59,7 @@ const params = {
         "@lezer/common",
         /* "@lezer/lr", */
         "@lezer/highlight",
+        "openai",
         ...builtins
     ],
     format: "cjs",
