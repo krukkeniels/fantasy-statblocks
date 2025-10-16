@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/marti/iCloudDrive/iCloud~md~obsidian/Velora/11 - Templates/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

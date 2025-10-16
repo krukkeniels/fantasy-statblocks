@@ -50,6 +50,7 @@ export default class StatblockSettingTab extends PluginSettingTab {
 
             this.generateTopSettings(containerEl.createDiv());
             this.generateParseSettings(containerEl.createDiv());
+            this.generateOpenAISettings(containerEl.createDiv());
             this.generateAdvancedSettings(containerEl.createDiv());
 
             this.generateLayouts(containerEl.createDiv());
@@ -73,6 +74,96 @@ export default class StatblockSettingTab extends PluginSettingTab {
             );
         }
     }
+    generateOpenAISettings(container: HTMLDivElement) {
+        container.empty();
+        new Setting(container).setHeading().setName("AI Image Generation");
+
+        new Setting(container)
+            .setName("OpenAI API Key")
+            .setDesc(
+                createFragment((e) => {
+                    e.createSpan({
+                        text: "Enter your OpenAI API key to enable AI image generation for creatures. "
+                    });
+                    e.createEl("a", {
+                        href: "https://platform.openai.com/api-keys",
+                        text: "Get your API key here"
+                    });
+                    e.createSpan({
+                        text: "."
+                    });
+                })
+            )
+            .addText((text) =>
+                text
+                    .setPlaceholder("sk-...")
+                    .setValue(this.plugin.settings.openAIApiKey)
+                    .onChange(async (value) => {
+                        this.plugin.settings.openAIApiKey = value.trim();
+                        await this.plugin.saveSettings();
+                    })
+                    .then((text) => {
+                        text.inputEl.type = "password";
+                    })
+            );
+
+        new Setting(container)
+            .setName("Default Art Style")
+            .setDesc("Choose the default art style for AI-generated images.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOptions(
+                        this.plugin.settings.openAIImageStyles.reduce(
+                            (acc, style) => {
+                                acc[style] = style;
+                                return acc;
+                            },
+                            {} as Record<string, string>
+                        )
+                    )
+                    .setValue(this.plugin.settings.openAIDefaultStyle)
+                    .onChange(async (value) => {
+                        this.plugin.settings.openAIDefaultStyle = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        let path: string;
+        new Setting(container)
+            .setName("Image Save Folder")
+            .setDesc("The folder where AI-generated images will be saved.")
+            .addText((text) => {
+                let folders = this.app.vault
+                    .getAllLoadedFiles()
+                    .filter(
+                        (f) =>
+                            f instanceof TFolder &&
+                            f.path !== this.plugin.settings.openAIImageSaveFolder
+                    );
+
+                text.setValue(this.plugin.settings.openAIImageSaveFolder);
+                const modal = new FolderInputSuggest(this.app, text, [
+                    ...(folders as TFolder[])
+                ]);
+
+                modal.onSelect(async ({ item }) => {
+                    path = normalizePath(item.path);
+                    text.setValue(item.path);
+                    this.plugin.settings.openAIImageSaveFolder = path;
+                    await this.plugin.saveSettings();
+                });
+
+                text.inputEl.onblur = async () => {
+                    const v = text.inputEl.value?.trim()
+                        ? text.inputEl.value.trim()
+                        : "Statblocks/Images";
+                    path = normalizePath(v);
+                    this.plugin.settings.openAIImageSaveFolder = path;
+                    await this.plugin.saveSettings();
+                };
+            });
+    }
+
     generateAdvancedSettings(container: HTMLDivElement) {
         container.empty();
         new Setting(container).setHeading().setName("Advanced Settings");

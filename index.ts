@@ -70,6 +70,7 @@ export interface Monster {
 
     /** Fate Core */
     description?: string;
+    appearance?: string;
     aspects?: string;
     temporaryAspects?: string;
     stress?: number[];
@@ -161,6 +162,10 @@ export interface StatblockData {
     alwaysImport: boolean;
     defaultLayoutsIntegrated: boolean;
     atomicWrite: boolean;
+    openAIApiKey: string;
+    openAIImageStyles: string[];
+    openAIDefaultStyle: string;
+    openAIImageSaveFolder: string;
 }
 
 declare global {

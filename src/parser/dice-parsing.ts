@@ -108,6 +108,13 @@ return { text, original: dice ?? original };`,
             desc: "4 (1d6 + 1)"
         },
         {
+            regex: /(\d+d\d+(?:\s*[+\-]\s*\d+)?)/.source,
+            parser: `let [, dice] = matches;
+return { text: dice };`,
+            id: nanoid(),
+            desc: "1d6 or 2d8+3"
+        },
+        {
             regex: /([^\s]+) ([\+\-])(\d+)/.source,
             parser: `
             let [, save, sign, number] = matches;

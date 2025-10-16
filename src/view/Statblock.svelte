@@ -22,6 +22,7 @@
     import Bar from "./ui/Bar.svelte";
     import ColumnContainer from "./ui/ColumnContainer.svelte";
     import { slugifyLayoutForCss } from "src/util/util";
+    import { OpenAIImageGenerator } from "src/services/openai-image-generator";
 
     const dispatch = createEventDispatcher();
 
@@ -133,6 +134,14 @@
             .setTitle("Export as PNG")
             .onClick(() => dispatch("export"))
     );
+    menu.addItem((item) =>
+        item
+            .setIcon("sparkles")
+            .setTitle("Generate AI Image with OpenAI")
+            .onClick(async () => {
+                await generateAIImage();
+            })
+    );
     if (canDice)
         menu.addItem((item) =>
             item
@@ -146,6 +155,63 @@
     const showMenu = (evt: MouseEvent) => {
         menu.showAtMouseEvent(evt);
     };
+
+    async function generateAIImage() {
+        try {
+            const imagePath = await OpenAIImageGenerator.generateMonsterImage(
+                monster,
+                plugin.app.vault,
+                {
+                    apiKey: plugin.settings.openAIApiKey,
+                    style: plugin.settings.openAIDefaultStyle,
+                    saveFolder: plugin.settings.openAIImageSaveFolder
+                }
+            );
+
+            // Update monster image in memory
+            monster.image = imagePath;
+            monsterStore.set(monster);
+
+            // Try to update frontmatter if this is a file-based creature
+            let sourceFile: string | null = null;
+
+            // Priority 1: Use monster.path if available
+            if (monster.path) {
+                sourceFile = monster.path;
+            }
+            // Priority 2: Use monster.note and resolve it
+            else if (monster.note) {
+                const notePath = Array.isArray(monster.note)
+                    ? monster.note.flat(Infinity).pop()
+                    : monster.note;
+                const file = plugin.app.metadataCache.getFirstLinkpathDest(
+                    notePath as string,
+                    context
+                );
+                if (file) {
+                    sourceFile = file.path;
+                }
+            }
+            // Priority 3: Use context if it's a markdown file
+            else if (context && context.endsWith(".md")) {
+                sourceFile = context;
+            }
+
+            // Update frontmatter if we found a source file
+            if (sourceFile) {
+                const updated = await OpenAIImageGenerator.updateCreatureFrontmatter(
+                    plugin.app,
+                    sourceFile,
+                    imagePath
+                );
+                if (updated) {
+                    new Notice(`Image updated in ${sourceFile.split("/").pop()}`);
+                }
+            }
+        } catch (error) {
+            console.error("AI Image Generation Error:", error);
+        }
+    }
 
 
     $: name = slugifyLayoutForCss(monster.name ?? "", "no-name");

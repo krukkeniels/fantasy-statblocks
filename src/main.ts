@@ -57,7 +57,17 @@ const DEFAULT_DATA: StatblockData = {
     hideConditionHelp: false,
     alwaysImport: false,
     defaultLayoutsIntegrated: false,
-    atomicWrite: false
+    atomicWrite: false,
+    openAIApiKey: "",
+    openAIImageStyles: [
+        "Fantasy Art",
+        "Digital Painting",
+        "Realistic",
+        "Comic Book Style",
+        "Watercolor"
+    ],
+    openAIDefaultStyle: "Fantasy Art",
+    openAIImageSaveFolder: "Statblocks/Images"
 };
 
 export default class StatBlockPlugin extends Plugin {
