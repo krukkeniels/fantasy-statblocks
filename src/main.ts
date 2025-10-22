@@ -59,15 +59,20 @@ const DEFAULT_DATA: StatblockData = {
     defaultLayoutsIntegrated: false,
     atomicWrite: false,
     openAIApiKey: "",
-    openAIImageStyles: [
-        "Fantasy Art",
-        "Digital Painting",
-        "Realistic",
-        "Comic Book Style",
-        "Watercolor"
-    ],
-    openAIDefaultStyle: "Fantasy Art",
-    openAIImageSaveFolder: "Statblocks/Images"
+    openAIDefaultStyle: "Epic Fantasy Art", // Fixed style optimized for FLUX.1 Dev
+    openAIImageSaveFolder: "Statblocks/Images",
+    replicateApiKey: "",
+    replicateImageProvider: "replicate",
+    replicateInferenceSteps: 28,
+    replicateRemoveBackground: true,
+    // Vision Analysis Settings
+    enableVisionAnalysis: false,
+    visionProvider: "gpt4v",
+    visionApiKey: "",
+    // Prompt Engineering Settings
+    enablePromptEngineering: false,
+    promptProvider: "gpt4",
+    promptApiKey: ""
 };
 
 export default class StatBlockPlugin extends Plugin {

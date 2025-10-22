@@ -22,3 +22,4 @@ src/importers/*.json
 .env
 data.json
 dist
+deploy.bat

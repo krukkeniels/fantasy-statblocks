@@ -182,9 +182,8 @@ export class OpenAIImageGenerator {
             const arrayBuffer = response.arrayBuffer;
 
             // Generate filename
-            const timestamp = Date.now();
             const safeName = monsterName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-            const filename = `${safeName}_${timestamp}.png`;
+            const filename = `${safeName}.png`;
             const filePath = normalizePath(`${normalizedFolder}/${filename}`);
 
             // Save to vault
@@ -205,9 +204,8 @@ export class OpenAIImageGenerator {
         try {
             const normalizedFolder = await this.ensureFolder(vault, folderPath);
 
-            const timestamp = Date.now();
             const safeName = monsterName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-            const filename = `${safeName}_${timestamp}.png`;
+            const filename = `${safeName}.png`;
             const filePath = normalizePath(`${normalizedFolder}/${filename}`);
 
             const buffer =
@@ -295,6 +293,340 @@ export class OpenAIImageGenerator {
         }
     }
 
+    /**
+     * Compress and prepare an image for OpenAI DALL-E 2 upload
+     * - Crops to square (center crop) as required by DALL-E 2
+     * - Prioritizes quality compression over resizing to preserve detail
+     * - Compresses to be under maxSizeBytes by reducing quality first, then dimensions if needed
+     * - Converts to RGBA PNG format
+     */
+    private static async compressAndPrepareImage(
+        file: File,
+        maxSizeBytes: number = 4 * 1024 * 1024, // 4MB
+        maxDimension: number = 2048 // Keep larger size for better quality
+    ): Promise<File> {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+
+            img.onload = async () => {
+                try {
+                    // Calculate initial square crop size (don't exceed maxDimension)
+                    const cropSize = Math.min(img.width, img.height);
+                    let currentDimension = Math.min(cropSize, maxDimension);
+                    let compressedFile: File | null = null;
+
+                    // Strategy 1: Try quality compression first at full(ish) resolution
+                    console.log(`Starting compression with ${currentDimension}x${currentDimension}...`);
+
+                    // Try different quality levels: 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60
+                    for (let quality = 0.95; quality >= 0.60 && !compressedFile; quality -= 0.05) {
+                        const processedFile = await this.resizeAndCropToSquare(
+                            img,
+                            currentDimension,
+                            file.name,
+                            quality
+                        );
+
+                        if (processedFile.size <= maxSizeBytes) {
+                            compressedFile = processedFile;
+                            console.log(
+                                `Image compressed to ${processedFile.size} bytes at ${currentDimension}x${currentDimension}, quality ${quality.toFixed(2)}`
+                            );
+                        }
+                    }
+
+                    // Strategy 2: If quality compression failed, reduce dimensions
+                    if (!compressedFile) {
+                        console.log('Quality compression insufficient, reducing dimensions...');
+                        currentDimension = Math.floor(currentDimension * 0.75); // Start at 75% of max
+
+                        while (currentDimension >= 512 && !compressedFile) {
+                            // Try quality levels again at this smaller size
+                            for (let quality = 0.92; quality >= 0.60 && !compressedFile; quality -= 0.08) {
+                                const processedFile = await this.resizeAndCropToSquare(
+                                    img,
+                                    currentDimension,
+                                    file.name,
+                                    quality
+                                );
+
+                                if (processedFile.size <= maxSizeBytes) {
+                                    compressedFile = processedFile;
+                                    console.log(
+                                        `Image compressed to ${processedFile.size} bytes at ${currentDimension}x${currentDimension}, quality ${quality.toFixed(2)}`
+                                    );
+                                }
+                            }
+
+                            if (!compressedFile) {
+                                currentDimension = Math.floor(currentDimension * 0.75);
+                            }
+                        }
+                    }
+
+                    URL.revokeObjectURL(url);
+
+                    if (!compressedFile) {
+                        reject(
+                            new Error(
+                                'Unable to compress image below 4MB size limit. Please try a smaller image.'
+                            )
+                        );
+                        return;
+                    }
+
+                    resolve(compressedFile);
+                } catch (error) {
+                    URL.revokeObjectURL(url);
+                    reject(error);
+                }
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error('Failed to load image file'));
+            };
+
+            img.src = url;
+        });
+    }
+
+    /**
+     * Resize image and crop to square with RGBA format and quality compression
+     * Used by compressAndPrepareImage
+     *
+     * Uses a two-step process for quality compression:
+     * 1. Convert to JPEG with quality parameter (lossy compression)
+     * 2. Convert JPEG to PNG for RGBA support (required by OpenAI)
+     */
+    private static async resizeAndCropToSquare(
+        img: HTMLImageElement,
+        targetDimension: number,
+        originalFileName: string,
+        quality: number = 0.92
+    ): Promise<File> {
+        return new Promise(async (resolve, reject) => {
+            try {
+                // Calculate the size of the square crop from the original image
+                // We'll take a square from the center of the image
+                const cropSize = Math.min(img.width, img.height);
+
+                // Calculate crop position (center crop)
+                const sourceX = (img.width - cropSize) / 2;
+                const sourceY = (img.height - cropSize) / 2;
+
+                // Create canvas for the final square image
+                const canvas = document.createElement('canvas');
+                canvas.width = targetDimension;
+                canvas.height = targetDimension;
+
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error('Failed to get canvas context'));
+                    return;
+                }
+
+                // Draw the cropped and resized image
+                // This takes a square crop from the center of the source image
+                // and scales it to fill the target dimensions
+                ctx.drawImage(
+                    img,
+                    sourceX,
+                    sourceY,
+                    cropSize,
+                    cropSize, // source crop (square from center)
+                    0,
+                    0,
+                    targetDimension,
+                    targetDimension // destination (scaled to target)
+                );
+
+                // Step 1: Convert to JPEG with quality compression
+                const jpegBlob = await new Promise<Blob>((resolveBlob, rejectBlob) => {
+                    canvas.toBlob(
+                        (blob) => {
+                            if (!blob) {
+                                rejectBlob(new Error('Failed to create JPEG blob'));
+                                return;
+                            }
+                            resolveBlob(blob);
+                        },
+                        'image/jpeg',
+                        quality
+                    );
+                });
+
+                // Step 2: Load the compressed JPEG and convert to PNG for RGBA support
+                const jpegUrl = URL.createObjectURL(jpegBlob);
+                const compressedImg = new Image();
+
+                compressedImg.onload = () => {
+                    // Create new canvas for PNG conversion
+                    const pngCanvas = document.createElement('canvas');
+                    pngCanvas.width = targetDimension;
+                    pngCanvas.height = targetDimension;
+
+                    const pngCtx = pngCanvas.getContext('2d');
+                    if (!pngCtx) {
+                        URL.revokeObjectURL(jpegUrl);
+                        reject(new Error('Failed to get PNG canvas context'));
+                        return;
+                    }
+
+                    // Draw the compressed JPEG onto the PNG canvas
+                    pngCtx.drawImage(compressedImg, 0, 0);
+
+                    // Convert to PNG blob (supports RGBA)
+                    pngCanvas.toBlob(
+                        (pngBlob) => {
+                            URL.revokeObjectURL(jpegUrl);
+
+                            if (!pngBlob) {
+                                reject(new Error('Failed to create PNG blob'));
+                                return;
+                            }
+
+                            const file = new File(
+                                [pngBlob],
+                                originalFileName.replace(/\.[^.]+$/, '.png'),
+                                { type: 'image/png' }
+                            );
+                            resolve(file);
+                        },
+                        'image/png'
+                    );
+                };
+
+                compressedImg.onerror = () => {
+                    URL.revokeObjectURL(jpegUrl);
+                    reject(new Error('Failed to load compressed JPEG'));
+                };
+
+                compressedImg.src = jpegUrl;
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    /**
+     * Convert an image file to RGBA PNG format
+     * Required for OpenAI DALL-E 2 image editing API
+     * @deprecated Use compressAndPrepareImage instead for better file size handling
+     */
+    private static async convertImageToRGBA(file: File): Promise<File> {
+        return new Promise((resolve, reject) => {
+            // Create an image element to load the file
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+
+            img.onload = () => {
+                try {
+                    // Create a canvas to redraw the image with RGBA
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        throw new Error('Failed to get canvas context');
+                    }
+
+                    // Draw the image (this automatically adds an alpha channel)
+                    ctx.drawImage(img, 0, 0);
+
+                    // Convert canvas to blob in PNG format (which supports RGBA)
+                    canvas.toBlob((blob) => {
+                        URL.revokeObjectURL(url);
+
+                        if (!blob) {
+                            reject(new Error('Failed to convert image to RGBA format'));
+                            return;
+                        }
+
+                        // Create a new File from the blob
+                        const rgbaFile = new File(
+                            [blob],
+                            file.name.replace(/\.[^.]+$/, '.png'),
+                            { type: 'image/png' }
+                        );
+
+                        resolve(rgbaFile);
+                    }, 'image/png');
+                } catch (error) {
+                    URL.revokeObjectURL(url);
+                    reject(error);
+                }
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error('Failed to load image file'));
+            };
+
+            img.src = url;
+        });
+    }
+
+    /**
+     * Generate a fully transparent mask for DALL-E 2 image editing
+     * The mask tells DALL-E which areas to regenerate (transparent = regenerate entire image)
+     */
+    private static async generateFullTransparentMask(file: File): Promise<File> {
+        return new Promise((resolve, reject) => {
+            // Load the image to get dimensions
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+
+            img.onload = () => {
+                try {
+                    // Create a canvas with same dimensions
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        throw new Error('Failed to get canvas context');
+                    }
+
+                    // Create fully transparent image (alpha = 0 everywhere)
+                    // By default, canvas is transparent, so we don't need to draw anything
+                    // Just export it as PNG
+
+                    canvas.toBlob((blob) => {
+                        URL.revokeObjectURL(url);
+
+                        if (!blob) {
+                            reject(new Error('Failed to create transparent mask'));
+                            return;
+                        }
+
+                        // Create a File from the blob
+                        const maskFile = new File(
+                            [blob],
+                            'mask.png',
+                            { type: 'image/png' }
+                        );
+
+                        resolve(maskFile);
+                    }, 'image/png');
+                } catch (error) {
+                    URL.revokeObjectURL(url);
+                    reject(error);
+                }
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error('Failed to load image file for mask generation'));
+            };
+
+            img.src = url;
+        });
+    }
+
     static async generateMonsterImageFromPhoto(
         monster: Partial<Monster>,
         vault: Vault,
@@ -314,6 +646,15 @@ export class OpenAIImageGenerator {
         const loadingNotice = new Notice("Enhancing photo with AI...", 0);
 
         try {
+            // Compress and prepare image (resize to 1024x1024, crop to square, ensure under 4MB)
+            loadingNotice.setMessage("Compressing and preparing image...");
+            const preparedPhoto = await this.compressAndPrepareImage(photo);
+
+            // Generate fully transparent mask (tells DALL-E to transform entire image)
+            // Use the prepared photo so mask dimensions match
+            loadingNotice.setMessage("Generating transformation mask...");
+            const mask = await this.generateFullTransparentMask(preparedPhoto);
+
             const openai = new OpenAI({
                 apiKey: options.apiKey,
                 dangerouslyAllowBrowser: true
@@ -326,9 +667,10 @@ export class OpenAIImageGenerator {
 
             loadingNotice.setMessage("Uploading photo to OpenAI...");
             const response = await openai.images.edit({
-                model: "gpt-image-1",
+                model: "dall-e-2",
                 prompt,
-                image: [photo],
+                image: preparedPhoto,
+                mask: mask,
                 size: "1024x1024"
             });
 

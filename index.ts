@@ -163,9 +163,20 @@ export interface StatblockData {
     defaultLayoutsIntegrated: boolean;
     atomicWrite: boolean;
     openAIApiKey: string;
-    openAIImageStyles: string[];
-    openAIDefaultStyle: string;
+    openAIDefaultStyle: string; // Fixed to "Epic Fantasy Art"
     openAIImageSaveFolder: string;
+    replicateApiKey: string;
+    replicateImageProvider: "openai" | "replicate";
+    replicateInferenceSteps: number;
+    replicateRemoveBackground: boolean;
+    // Vision Analysis Settings
+    enableVisionAnalysis: boolean;
+    visionProvider: "gpt4v" | "claude";
+    visionApiKey: string;
+    // Prompt Engineering Settings
+    enablePromptEngineering: boolean;
+    promptProvider: "gpt4" | "claude";
+    promptApiKey: string;
 }
 
 declare global {

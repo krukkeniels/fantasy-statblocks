@@ -39,6 +39,7 @@
         return link;
     }
     const getImage = (): string => {
+        // First, try to get image from configured properties (explicit image property)
         if (
             item.properties.length &&
             item.properties.some(
@@ -54,8 +55,29 @@
                 );
             }
             const path = monster[props[0]] as string;
+            const link = getLink(path);
+            if (link) {
+                return link;
+            }
+        }
 
-            return getLink(path);
+        // Fallback: check for monster-name-based image file
+        if (monster.name && plugin.settings.openAIImageSaveFolder) {
+            const safeName = monster.name.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+            const fallbackPath = `${plugin.settings.openAIImageSaveFolder}/${safeName}.png`;
+
+            try {
+                const fallbackFile = plugin.app.metadataCache.getFirstLinkpathDest(
+                    fallbackPath,
+                    context
+                );
+                if (fallbackFile) {
+                    file = fallbackFile;
+                    return plugin.app.vault.getResourcePath(fallbackFile);
+                }
+            } catch (e) {
+                // File doesn't exist, no fallback image
+            }
         }
     };
     let image = getImage();

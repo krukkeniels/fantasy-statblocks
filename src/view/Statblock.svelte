@@ -23,6 +23,7 @@
     import ColumnContainer from "./ui/ColumnContainer.svelte";
     import { slugifyLayoutForCss } from "src/util/util";
     import { OpenAIImageGenerator } from "src/services/openai-image-generator";
+    import { ReplicateImageGenerator } from "src/services/replicate-image-generator";
 
     const dispatch = createEventDispatcher();
 
@@ -134,18 +135,20 @@
             .setTitle("Export as PNG")
             .onClick(() => dispatch("export"))
     );
+    const providerName = plugin.settings.replicateImageProvider === "replicate" ? "FLUX" : "OpenAI";
     menu.addItem((item) =>
         item
             .setIcon("sparkles")
-            .setTitle("Generate AI Image with OpenAI")
+            .setTitle(`Generate AI Image with ${providerName}`)
             .onClick(async () => {
                 await generateAIImage();
             })
     );
+    console.log("[Fantasy Statblocks] Adding photo menu item...");
     menu.addItem((item) =>
         item
             .setIcon("camera")
-            .setTitle("Generate AI Image from Photo")
+            .setTitle(`Generate AI Image from Photo (${providerName})`)
             .onClick(async () => {
                 await generateAIImageFromPhoto();
             })
@@ -227,15 +230,36 @@
 
     async function generateAIImage() {
         try {
-            const imagePath = await OpenAIImageGenerator.generateMonsterImage(
-                monster,
-                plugin.app.vault,
-                {
-                    apiKey: plugin.settings.openAIApiKey,
-                    style: plugin.settings.openAIDefaultStyle,
-                    saveFolder: plugin.settings.openAIImageSaveFolder
-                }
-            );
+            let imagePath: string;
+
+            if (plugin.settings.replicateImageProvider === "replicate") {
+                imagePath = await ReplicateImageGenerator.generateMonsterImage(
+                    monster,
+                    plugin.app.vault,
+                    {
+                        apiKey: plugin.settings.replicateApiKey,
+                        style: plugin.settings.openAIDefaultStyle,
+                        saveFolder: plugin.settings.openAIImageSaveFolder,
+                        inferenceSteps: plugin.settings.replicateInferenceSteps,
+                        removeBackground: plugin.settings.replicateRemoveBackground,
+                        enableVisionAnalysis: false,
+                        visionProvider: plugin.settings.visionProvider,
+                        enablePromptEngineering: false,
+                        promptProvider: plugin.settings.promptProvider,
+                        generationMode: "quality"
+                    }
+                );
+            } else {
+                imagePath = await OpenAIImageGenerator.generateMonsterImage(
+                    monster,
+                    plugin.app.vault,
+                    {
+                        apiKey: plugin.settings.openAIApiKey,
+                        style: plugin.settings.openAIDefaultStyle,
+                        saveFolder: plugin.settings.openAIImageSaveFolder
+                    }
+                );
+            }
 
             await applyGeneratedImage(imagePath);
         } catch (error) {
@@ -250,8 +274,33 @@
                 return;
             }
 
-            const imagePath =
-                await OpenAIImageGenerator.generateMonsterImageFromPhoto(
+            let imagePath: string;
+
+            if (plugin.settings.replicateImageProvider === "replicate") {
+                imagePath = await ReplicateImageGenerator.generateMonsterImageFromPhoto(
+                    monster,
+                    plugin.app.vault,
+                    photo,
+                    {
+                        apiKey: plugin.settings.replicateApiKey,
+                        style: plugin.settings.openAIDefaultStyle,
+                        saveFolder: plugin.settings.openAIImageSaveFolder,
+                        inferenceSteps: plugin.settings.replicateInferenceSteps,
+                        removeBackground: plugin.settings.replicateRemoveBackground,
+                        // Vision Analysis Settings
+                        enableVisionAnalysis: plugin.settings.enableVisionAnalysis,
+                        visionProvider: plugin.settings.visionProvider,
+                        visionApiKey: plugin.settings.visionApiKey,
+                        // Prompt Engineering Settings
+                        enablePromptEngineering: plugin.settings.enablePromptEngineering,
+                        promptProvider: plugin.settings.promptProvider,
+                        promptApiKey: plugin.settings.promptApiKey,
+                        // Generation Mode
+                        generationMode: "quality"
+                    }
+                );
+            } else {
+                imagePath = await OpenAIImageGenerator.generateMonsterImageFromPhoto(
                     monster,
                     plugin.app.vault,
                     photo,
@@ -261,6 +310,7 @@
                         saveFolder: plugin.settings.openAIImageSaveFolder
                     }
                 );
+            }
 
             await applyGeneratedImage(imagePath);
         } catch (error) {
