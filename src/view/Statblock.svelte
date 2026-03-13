@@ -23,7 +23,8 @@
     import ColumnContainer from "./ui/ColumnContainer.svelte";
     import { slugifyLayoutForCss } from "src/util/util";
     import { OpenAIImageGenerator } from "src/services/openai-image-generator";
-    import { ReplicateImageGenerator } from "src/services/replicate-image-generator";
+    import { confirmImageGenAction } from "src/modal/image-generation-confirm-modal";
+    import { TFile } from "obsidian";
 
     const dispatch = createEventDispatcher();
 
@@ -135,22 +136,28 @@
             .setTitle("Export as PNG")
             .onClick(() => dispatch("export"))
     );
-    const providerName = plugin.settings.replicateImageProvider === "replicate" ? "FLUX" : "OpenAI";
     menu.addItem((item) =>
         item
             .setIcon("sparkles")
-            .setTitle(`Generate AI Image with ${providerName}`)
+            .setTitle("Generate AI Image")
             .onClick(async () => {
                 await generateAIImage();
             })
     );
-    console.log("[Fantasy Statblocks] Adding photo menu item...");
     menu.addItem((item) =>
         item
             .setIcon("camera")
-            .setTitle(`Generate AI Image from Photo (${providerName})`)
+            .setTitle("Generate AI Image from Photo")
             .onClick(async () => {
                 await generateAIImageFromPhoto();
+            })
+    );
+    menu.addItem((item) =>
+        item
+            .setIcon("heart-crack")
+            .setTitle("Generate Health Variant Images")
+            .onClick(async () => {
+                await generateHealthVariantImages();
             })
     );
     if (canDice)
@@ -172,32 +179,8 @@
         monster.image = imagePath;
         monsterStore.set(monster);
 
-        // Try to update frontmatter if this is a file-based creature
-        let sourceFile: string | null = null;
-
-        // Priority 1: Use monster.path if available
-        if (monster.path) {
-            sourceFile = monster.path;
-        }
-        // Priority 2: Use monster.note and resolve it
-        else if (monster.note) {
-            const notePath = Array.isArray(monster.note)
-                ? monster.note.flat(Infinity).pop()
-                : monster.note;
-            const file = plugin.app.metadataCache.getFirstLinkpathDest(
-                notePath as string,
-                context
-            );
-            if (file) {
-                sourceFile = file.path;
-            }
-        }
-        // Priority 3: Use context if it's a markdown file
-        else if (context && context.endsWith(".md")) {
-            sourceFile = context;
-        }
-
         // Update frontmatter if we found a source file
+        const sourceFile = resolveSourceFile();
         if (sourceFile) {
             const updated = await OpenAIImageGenerator.updateCreatureFrontmatter(
                 plugin.app,
@@ -228,38 +211,35 @@
         });
     }
 
-    async function generateAIImage() {
-        try {
-            let imagePath: string;
+    function imageExistsInVault(path: string | undefined): boolean {
+        if (!path) return false;
+        const file = plugin.app.vault.getAbstractFileByPath(path);
+        return file instanceof TFile;
+    }
 
-            if (plugin.settings.replicateImageProvider === "replicate") {
-                imagePath = await ReplicateImageGenerator.generateMonsterImage(
-                    monster,
-                    plugin.app.vault,
-                    {
-                        apiKey: plugin.settings.replicateApiKey,
-                        style: plugin.settings.openAIDefaultStyle,
-                        saveFolder: plugin.settings.openAIImageSaveFolder,
-                        inferenceSteps: plugin.settings.replicateInferenceSteps,
-                        removeBackground: plugin.settings.replicateRemoveBackground,
-                        enableVisionAnalysis: false,
-                        visionProvider: plugin.settings.visionProvider,
-                        enablePromptEngineering: false,
-                        promptProvider: plugin.settings.promptProvider,
-                        generationMode: "quality"
-                    }
-                );
-            } else {
-                imagePath = await OpenAIImageGenerator.generateMonsterImage(
-                    monster,
-                    plugin.app.vault,
-                    {
-                        apiKey: plugin.settings.openAIApiKey,
-                        style: plugin.settings.openAIDefaultStyle,
-                        saveFolder: plugin.settings.openAIImageSaveFolder
-                    }
-                );
+    async function generateAIImage() {
+        if (imageExistsInVault(monster.image)) {
+            const action = await confirmImageGenAction(plugin.app, ["Main image"]);
+            if (action === "cancel") return;
+            if (action === "add-missing") {
+                new Notice("Image already exists, nothing to generate.");
+                return;
             }
+        }
+
+        try {
+            const imagePath = await OpenAIImageGenerator.generateMonsterImage(
+                monster,
+                plugin.app.vault,
+                {
+                    apiKey: plugin.settings.openAIApiKey,
+                    style: plugin.settings.openAIDefaultStyle,
+                    saveFolder: plugin.settings.openAIImageSaveFolder,
+                    quality: plugin.settings.openAIImageQuality,
+                    size: plugin.settings.openAIImageSize,
+                    enablePromptEngineering: false
+                }
+            );
 
             await applyGeneratedImage(imagePath);
         } catch (error) {
@@ -274,47 +254,123 @@
                 return;
             }
 
-            let imagePath: string;
-
-            if (plugin.settings.replicateImageProvider === "replicate") {
-                imagePath = await ReplicateImageGenerator.generateMonsterImageFromPhoto(
-                    monster,
-                    plugin.app.vault,
-                    photo,
-                    {
-                        apiKey: plugin.settings.replicateApiKey,
-                        style: plugin.settings.openAIDefaultStyle,
-                        saveFolder: plugin.settings.openAIImageSaveFolder,
-                        inferenceSteps: plugin.settings.replicateInferenceSteps,
-                        removeBackground: plugin.settings.replicateRemoveBackground,
-                        // Vision Analysis Settings
-                        enableVisionAnalysis: plugin.settings.enableVisionAnalysis,
-                        visionProvider: plugin.settings.visionProvider,
-                        visionApiKey: plugin.settings.visionApiKey,
-                        // Prompt Engineering Settings
-                        enablePromptEngineering: plugin.settings.enablePromptEngineering,
-                        promptProvider: plugin.settings.promptProvider,
-                        promptApiKey: plugin.settings.promptApiKey,
-                        // Generation Mode
-                        generationMode: "quality"
-                    }
-                );
-            } else {
-                imagePath = await OpenAIImageGenerator.generateMonsterImageFromPhoto(
-                    monster,
-                    plugin.app.vault,
-                    photo,
-                    {
-                        apiKey: plugin.settings.openAIApiKey,
-                        style: plugin.settings.openAIDefaultStyle,
-                        saveFolder: plugin.settings.openAIImageSaveFolder
-                    }
-                );
-            }
+            const imagePath = await OpenAIImageGenerator.generateMonsterImageFromPhoto(
+                monster,
+                plugin.app.vault,
+                photo,
+                {
+                    apiKey: plugin.settings.openAIApiKey,
+                    style: plugin.settings.openAIDefaultStyle,
+                    saveFolder: plugin.settings.openAIImageSaveFolder,
+                    quality: plugin.settings.openAIImageQuality,
+                    size: plugin.settings.openAIImageSize,
+                    enablePromptEngineering: plugin.settings.enablePromptEngineering
+                }
+            );
 
             await applyGeneratedImage(imagePath);
         } catch (error) {
             console.error("AI Image Generation from Photo Error:", error);
+        }
+    }
+
+    function resolveSourceFile(): string | null {
+        if (monster.path) {
+            return monster.path;
+        }
+        if (monster.note) {
+            const notePath = Array.isArray(monster.note)
+                ? monster.note.flat(Infinity).pop()
+                : monster.note;
+            const file = plugin.app.metadataCache.getFirstLinkpathDest(
+                notePath as string,
+                context
+            );
+            if (file) {
+                return file.path;
+            }
+        }
+        if (context && context.endsWith(".md")) {
+            return context;
+        }
+        return null;
+    }
+
+    async function generateHealthVariantImages() {
+        const variantChecks = [
+            { key: "full", field: monster.image, label: "Main image" },
+            { key: "hurt", field: monster.image_hurt, label: "Hurt variant" },
+            { key: "bloodied", field: monster.image_bloodied, label: "Bloodied variant" },
+            { key: "dead", field: monster.image_dead, label: "Dead variant" },
+        ] as const;
+
+        const existing = variantChecks.filter((v) => imageExistsInVault(v.field));
+        let skipVariants: { full?: boolean; hurt?: boolean; bloodied?: boolean; dead?: boolean } | undefined;
+
+        if (existing.length > 0) {
+            const action = await confirmImageGenAction(
+                plugin.app,
+                existing.map((v) => v.label)
+            );
+            if (action === "cancel") return;
+            if (action === "add-missing") {
+                if (existing.length === variantChecks.length) {
+                    new Notice("All images already exist, nothing to generate.");
+                    return;
+                }
+                skipVariants = {};
+                for (const v of existing) {
+                    skipVariants[v.key] = true;
+                }
+            }
+        }
+
+        const loadingNotice = new Notice("Generating health variant images...", 0);
+        try {
+            const paths = await OpenAIImageGenerator.generateHealthVariants(
+                monster,
+                plugin.app.vault,
+                {
+                    apiKey: plugin.settings.openAIApiKey,
+                    style: plugin.settings.openAIDefaultStyle,
+                    saveFolder: plugin.settings.openAIImageSaveFolder,
+                    quality: plugin.settings.openAIImageQuality,
+                    size: plugin.settings.openAIImageSize,
+                    enablePromptEngineering: false
+                },
+                (stage, current, total) => {
+                    loadingNotice.setMessage(`${stage} (${current}/${total})...`);
+                },
+                skipVariants
+            );
+
+            loadingNotice.hide();
+
+            // Update in-memory monster
+            monster.image = paths.full;
+            if (paths.hurt) monster.image_hurt = paths.hurt;
+            if (paths.bloodied) monster.image_bloodied = paths.bloodied;
+            if (paths.dead) monster.image_dead = paths.dead;
+            monsterStore.set(monster);
+
+            // Update frontmatter
+            const sourceFile = resolveSourceFile();
+            if (sourceFile) {
+                const updated = await OpenAIImageGenerator.updateCreatureHealthVariantFrontmatter(
+                    plugin.app,
+                    sourceFile,
+                    paths
+                );
+                if (updated) {
+                    const count = 1 + (paths.hurt ? 1 : 0) + (paths.bloodied ? 1 : 0) + (paths.dead ? 1 : 0);
+                    new Notice(`${count} health variant image(s) saved for ${monster.name}`);
+                }
+            } else {
+                new Notice(`Health variant images generated for ${monster.name}`);
+            }
+        } catch (error) {
+            loadingNotice.hide();
+            console.error("Health Variant Generation Error:", error);
         }
     }
 

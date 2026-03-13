@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Read(//c/Users/marti/iCloudDrive/iCloud~md~obsidian/Velora/11 - Templates/**)"
+      "Read(//c/Users/marti/iCloudDrive/iCloud~md~obsidian/Velora/11 - Templates/**)",
+      "Read(//c/Users/marti/iCloudDrive/iCloud~md~obsidian/Velora/.obsidian/plugins/fantasy-statblocks/**)"
     ],
     "deny": [],
     "ask": []

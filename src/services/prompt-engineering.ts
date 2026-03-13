@@ -1,11 +1,10 @@
 import { requestUrl } from "obsidian";
-import type { VisionAnalysisResult } from "./vision-analysis";
 import type { Monster } from "index";
 
 /**
  * Prompt Engineering Service
  * Generates optimized prompts for image generation models
- * using LLMs to craft high-quality descriptions
+ * using GPT to craft high-quality descriptions
  */
 
 export interface EnhancedPrompt {
@@ -17,66 +16,52 @@ export interface EnhancedPrompt {
     };
 }
 
-export type PromptProvider = "gpt4" | "claude";
-
 export interface PromptEngineeringOptions {
-    provider: PromptProvider;
     apiKey: string;
     style: string;
-    imageModel: "flux" | "dalle" | "sdxl";
+}
+
+export interface MonsterDescription {
+    description: string;
+    detectedFeatures?: {
+        pose?: string;
+        equipment?: string[];
+        colors?: string[];
+        distinctiveFeatures?: string[];
+        composition?: string;
+    };
 }
 
 export class PromptEngineeringService {
     /**
-     * Generate an enhanced prompt from vision analysis and monster data
+     * Generate an enhanced prompt from monster data using GPT
      */
     static async generateEnhancedPrompt(
-        visionAnalysis: VisionAnalysisResult,
+        monsterDescription: MonsterDescription,
         monster: Partial<Monster>,
         options: PromptEngineeringOptions
     ): Promise<EnhancedPrompt> {
-        const systemPrompt = this.buildSystemPrompt(options.imageModel);
-        const userPrompt = this.buildUserPrompt(visionAnalysis, monster, options.style);
-
-        switch (options.provider) {
-            case "gpt4":
-                return await this.generateWithGPT4(systemPrompt, userPrompt, options.apiKey);
-            case "claude":
-                return await this.generateWithClaude(systemPrompt, userPrompt, options.apiKey);
-            default:
-                throw new Error(`Unsupported prompt provider: ${options.provider}`);
-        }
+        const systemPrompt = this.buildSystemPrompt();
+        const userPrompt = this.buildUserPrompt(monsterDescription, monster, options.style);
+        return await this.generateWithGPT(systemPrompt, userPrompt, options.apiKey);
     }
 
     /**
-     * Build system prompt for the LLM
+     * Build system prompt for GPT
      */
-    private static buildSystemPrompt(imageModel: string): string {
-        const modelTips: Record<string, string> = {
-            flux: `FLUX excels at epic fantasy illustration (D&D book art, concept art). Focus on:
-- Dramatic fantasy illustration style with painterly quality
-- Detailed fantasy materials (ornate armor, magical effects, weathered textures)
-- Cinematic composition with heroic character poses
-- Professional TTRPG artwork aesthetic (like D&D sourcebooks)`,
-            dalle: `DALL-E 3 works best with clear, structured descriptions. Focus on:
-- Explicit subject positioning and framing
-- Clear lighting descriptions
-- Specific art style mentions
-- Avoiding abstract concepts`,
-            sdxl: `SDXL (Stable Diffusion XL) responds well to tag-based prompts. Focus on:
-- Quality tags (masterpiece, best quality, ultra detailed)
-- Specific artist style references
-- Technical photography terms
-- Booru-style comma-separated tags`
-        };
-
+    private static buildSystemPrompt(): string {
         return `You are an expert prompt engineer specializing in transforming tabletop miniature descriptions into epic fantasy character artwork.
 
 Your goal: Create optimized prompts that will transform a TINY PAINTED MINIATURE into EPIC FANTASY CHARACTER ARTWORK showing a full-sized character/creature, while maintaining the miniature's recognizable features (pose, equipment, colors, distinctive elements).
 
 CRITICAL: The output should be professional fantasy artwork (like D&D book illustrations or concept art), NOT a photograph of a miniature or toy.
 
-${modelTips[imageModel] || ""}
+The image will be generated with OpenAI's gpt-image-1 model, which excels at:
+- Following complex, detailed instructions precisely
+- Dramatic fantasy illustration with painterly quality
+- Detailed fantasy materials (ornate armor, magical effects, weathered textures)
+- Cinematic composition with heroic character poses
+- Professional TTRPG artwork aesthetic (like D&D sourcebooks)
 
 You must provide TWO prompts:
 1. **Positive Prompt**: Describes what should be in the image (epic fantasy character art in the user's chosen style)
@@ -110,23 +95,23 @@ Respond in this JSON format:
     }
 
     /**
-     * Build user prompt with vision analysis and monster context
+     * Build user prompt with monster description and context
      */
     private static buildUserPrompt(
-        visionAnalysis: VisionAnalysisResult,
+        monsterDescription: MonsterDescription,
         monster: Partial<Monster>,
         style: string
     ): string {
         const parts: string[] = [];
 
-        // Vision analysis description
+        // Monster description
         parts.push("## Miniature Analysis");
-        parts.push(visionAnalysis.description);
+        parts.push(monsterDescription.description);
 
         // Detected features
-        if (Object.keys(visionAnalysis.detectedFeatures).length > 0) {
+        const features = monsterDescription.detectedFeatures;
+        if (features && Object.keys(features).length > 0) {
             parts.push("\n## Detected Features:");
-            const features = visionAnalysis.detectedFeatures;
 
             if (features.pose) {
                 parts.push(`- Pose: ${features.pose}`);
@@ -190,9 +175,9 @@ Respond in this JSON format:
     }
 
     /**
-     * Generate prompt using GPT-4
+     * Generate prompt using GPT
      */
-    private static async generateWithGPT4(
+    private static async generateWithGPT(
         systemPrompt: string,
         userPrompt: string,
         apiKey: string
@@ -246,58 +231,6 @@ Respond in this JSON format:
     }
 
     /**
-     * Generate prompt using Claude
-     */
-    private static async generateWithClaude(
-        systemPrompt: string,
-        userPrompt: string,
-        apiKey: string
-    ): Promise<EnhancedPrompt> {
-        try {
-            const response = await requestUrl({
-                url: "https://api.anthropic.com/v1/messages",
-                method: "POST",
-                headers: {
-                    "x-api-key": apiKey,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    model: "claude-3-5-sonnet-20241022",
-                    max_tokens: 1500,
-                    system: systemPrompt,
-                    messages: [
-                        {
-                            role: "user",
-                            content: userPrompt
-                        }
-                    ]
-                })
-            });
-
-            if (response.status !== 200) {
-                throw new Error(`Claude API error: ${response.status}`);
-            }
-
-            const data = response.json;
-            const content = data.content[0]?.text;
-
-            if (!content) {
-                throw new Error("No content returned from Claude");
-            }
-
-            return this.parsePromptResponse(content);
-        } catch (error: any) {
-            if (error.message?.includes("401")) {
-                throw new Error("Invalid Anthropic API key for Claude");
-            } else if (error.message?.includes("429")) {
-                throw new Error("Anthropic API rate limit exceeded");
-            }
-            throw new Error(`Claude prompt generation failed: ${error.message || "Unknown error"}`);
-        }
-    }
-
-    /**
      * Parse the JSON response from LLMs
      */
     private static parsePromptResponse(content: string): EnhancedPrompt {
@@ -328,10 +261,8 @@ Respond in this JSON format:
      */
     static createFallbackPrompt(
         description: string,
-        style: string,
-        imageModel: "flux" | "dalle" | "sdxl"
+        style: string
     ): EnhancedPrompt {
-        // Build positive prompt optimized for epic fantasy illustration style
         const positivePrompt = `Epic fantasy character illustration: ${description}.
 FULL-SIZED character in professional fantasy artwork, D&D book illustration style.
 Dramatic fantasy illustration with painterly quality, epic composition, cinematic lighting.
@@ -341,10 +272,7 @@ Rich fantasy environment with depth: ancient ruins, mystical forests, epic dunge
 Character in heroic pose on fantasy terrain, detailed atmospheric background.
 Professional TTRPG character art quality, dynamic composition, concept art aesthetic`;
 
-        // Build aggressive negative prompt to exclude ALL miniature artifacts
-        const negativePrompt = imageModel === "flux"
-            ? "miniature, toy, plastic, figurine, model, gaming piece, tabletop, painted miniature, small scale, tiny, toy-like, simplified features, plain base, plastic base, platform, stand, flat painting, plastic texture, mold lines, simplified details, low quality, blurry, amateur, deformed, disfigured"
-            : "miniature, toy, plastic, figurine, model, gaming piece, tabletop, painted miniature, small scale, tiny, toy-like, plastic base, platform, stand, simplified features, low quality, blurry, amateur, deformed, disfigured, bad anatomy, worst quality, low res, flat painting, plastic texture";
+        const negativePrompt = "miniature, toy, plastic, figurine, model, gaming piece, tabletop, painted miniature, small scale, tiny, toy-like, plastic base, platform, stand, simplified features, low quality, blurry, amateur, deformed, disfigured, bad anatomy, worst quality, low res, flat painting, plastic texture";
 
         return {
             positivePrompt,

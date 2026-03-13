@@ -78,253 +78,162 @@ export default class StatblockSettingTab extends PluginSettingTab {
         container.empty();
         new Setting(container).setHeading().setName("AI Image Generation");
 
-        // Image Provider Selection
+        // OpenAI API Key
         new Setting(container)
-            .setName("AI Image Provider")
-            .setDesc("Choose which AI service to use for image generation.")
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOptions({
-                        "openai": "OpenAI DALL-E",
-                        "replicate": "Replicate FLUX.1 Dev (Recommended)"
-                    })
-                    .setValue(this.plugin.settings.replicateImageProvider)
-                    .onChange(async (value: "openai" | "replicate") => {
-                        this.plugin.settings.replicateImageProvider = value;
+            .setName("OpenAI API Key")
+            .setDesc(
+                createFragment((e) => {
+                    e.createSpan({
+                        text: "Enter your OpenAI API key. Used for image generation and prompt engineering. "
+                    });
+                    e.createEl("a", {
+                        href: "https://platform.openai.com/api-keys",
+                        text: "Get your API key here"
+                    });
+                    e.createSpan({
+                        text: "."
+                    });
+                })
+            )
+            .addText((text) =>
+                text
+                    .setPlaceholder("sk-...")
+                    .setValue(this.plugin.settings.openAIApiKey)
+                    .onChange(async (value) => {
+                        this.plugin.settings.openAIApiKey = value.trim();
                         await this.plugin.saveSettings();
-                        // Refresh settings display to show/hide relevant options
-                        this.generateOpenAISettings(container);
+                    })
+                    .then((text) => {
+                        text.inputEl.type = "password";
                     })
             );
 
-        // OpenAI Settings (shown when OpenAI is selected)
-        if (this.plugin.settings.replicateImageProvider === "openai") {
-            new Setting(container)
-                .setName("OpenAI API Key")
-                .setDesc(
-                    createFragment((e) => {
-                        e.createSpan({
-                            text: "Enter your OpenAI API key. "
-                        });
-                        e.createEl("a", {
-                            href: "https://platform.openai.com/api-keys",
-                            text: "Get your API key here"
-                        });
-                        e.createSpan({
-                            text: "."
-                        });
-                    })
-                )
-                .addText((text) =>
-                    text
-                        .setPlaceholder("sk-...")
-                        .setValue(this.plugin.settings.openAIApiKey)
-                        .onChange(async (value) => {
-                            this.plugin.settings.openAIApiKey = value.trim();
-                            await this.plugin.saveSettings();
-                        })
-                        .then((text) => {
-                            text.inputEl.type = "password";
-                        })
-                );
-        }
+        // Image Style
+        const stylePresets: Record<string, string> = {
+            "Epic Fantasy Art": "Epic Fantasy Art",
+            "Dark Fantasy": "Dark Fantasy",
+            "Anime / Manga": "Anime / Manga",
+            "Oil Painting": "Oil Painting",
+            "Watercolor": "Watercolor",
+            "Comic Book": "Comic Book",
+            "Realistic / Photographic": "Realistic / Photographic",
+            "Pixel Art": "Pixel Art",
+            "Medieval Woodcut": "Medieval Woodcut",
+            "custom": "Custom..."
+        };
+        const currentStyle = this.plugin.settings.openAIDefaultStyle;
+        const isPreset = currentStyle in stylePresets && currentStyle !== "custom";
 
-        // Replicate Settings (shown when Replicate is selected)
-        if (this.plugin.settings.replicateImageProvider === "replicate") {
-            new Setting(container)
-                .setName("Replicate API Key")
-                .setDesc(
-                    createFragment((e) => {
-                        e.createSpan({
-                            text: "Enter your Replicate API key for FLUX.1 Dev. "
-                        });
-                        e.createEl("a", {
-                            href: "https://replicate.com/account/api-tokens",
-                            text: "Get your API key here"
-                        });
-                        e.createSpan({
-                            text: ". Cost: ~$0.03 per image."
-                        });
-                    })
-                )
-                .addText((text) =>
-                    text
-                        .setPlaceholder("r8_...")
-                        .setValue(this.plugin.settings.replicateApiKey)
-                        .onChange(async (value) => {
-                            this.plugin.settings.replicateApiKey = value.trim();
-                            await this.plugin.saveSettings();
-                        })
-                        .then((text) => {
-                            text.inputEl.type = "password";
-                        })
-                );
+        let customStyleSetting: Setting | null = null;
 
-            new Setting(container)
-                .setName("Remove Background")
-                .setDesc("Automatically remove background from miniature photos before vision analysis. Helps the AI focus on the miniature itself. Recommended for photos with cluttered backgrounds.")
-                .addToggle((toggle) =>
-                    toggle
-                        .setValue(this.plugin.settings.replicateRemoveBackground)
-                        .onChange(async (value) => {
-                            this.plugin.settings.replicateRemoveBackground = value;
-                            await this.plugin.saveSettings();
-                        })
-                );
-
-            new Setting(container)
-                .setName("Inference Steps (Regular Generation Only)")
-                .setDesc("Number of steps for regular text-to-image generation. Higher = better quality but slower. Not used for photo-based generation. Default: 28")
-                .addSlider((slider) =>
-                    slider
-                        .setLimits(20, 50, 5)
-                        .setValue(this.plugin.settings.replicateInferenceSteps)
-                        .setDynamicTooltip()
-                        .onChange(async (value) => {
-                            this.plugin.settings.replicateInferenceSteps = value;
-                            await this.plugin.saveSettings();
-                        })
-                );
-
-            // Advanced AI Enhancement Section
-            new Setting(container)
-                .setHeading()
-                .setName("Advanced AI Enhancement (Optional)")
-                .setDesc("Use additional AI models to analyze miniatures and optimize prompts for even better results. Requires separate API keys.");
-
-            // Vision Analysis Settings
-            new Setting(container)
-                .setName("Enable Vision Analysis")
-                .setDesc("Use GPT-4V or Claude Vision to analyze miniature photos before generation. Provides detailed feature detection for better prompts. (~$0.01 per image)")
-                .addToggle((toggle) =>
-                    toggle
-                        .setValue(this.plugin.settings.enableVisionAnalysis)
-                        .onChange(async (value) => {
-                            this.plugin.settings.enableVisionAnalysis = value;
-                            await this.plugin.saveSettings();
-                            // Refresh settings to show/hide dependent options
-                            this.generateOpenAISettings(container);
-                        })
-                );
-
-            if (this.plugin.settings.enableVisionAnalysis) {
-                new Setting(container)
-                    .setName("Vision Provider")
-                    .setDesc("Choose which vision AI to use for analyzing miniature photos.")
-                    .addDropdown((dropdown) =>
-                        dropdown
-                            .addOptions({
-                                "gpt4v": "GPT-4 Vision (OpenAI)",
-                                "claude": "Claude Vision (Anthropic)"
-                            })
-                            .setValue(this.plugin.settings.visionProvider)
-                            .onChange(async (value: "gpt4v" | "claude") => {
-                                this.plugin.settings.visionProvider = value;
-                                await this.plugin.saveSettings();
-                            })
-                    );
-
-                new Setting(container)
-                    .setName(`${this.plugin.settings.visionProvider === "gpt4v" ? "OpenAI" : "Anthropic"} API Key for Vision`)
-                    .setDesc(
-                        createFragment((e) => {
-                            e.createSpan({
-                                text: `Enter your ${this.plugin.settings.visionProvider === "gpt4v" ? "OpenAI" : "Anthropic"} API key for vision analysis. `
-                            });
-                            e.createEl("a", {
-                                href: this.plugin.settings.visionProvider === "gpt4v"
-                                    ? "https://platform.openai.com/api-keys"
-                                    : "https://console.anthropic.com/settings/keys",
-                                text: "Get your API key here"
-                            });
-                            e.createSpan({
-                                text: "."
-                            });
-                        })
-                    )
-                    .addText((text) =>
-                        text
-                            .setPlaceholder(this.plugin.settings.visionProvider === "gpt4v" ? "sk-..." : "sk-ant-...")
-                            .setValue(this.plugin.settings.visionApiKey)
-                            .onChange(async (value) => {
-                                this.plugin.settings.visionApiKey = value.trim();
-                                await this.plugin.saveSettings();
-                            })
-                            .then((text) => {
-                                text.inputEl.type = "password";
-                            })
-                    );
+        const showCustomInput = (show: boolean) => {
+            if (customStyleSetting) {
+                customStyleSetting.settingEl.toggle(show);
             }
+        };
 
-            // Prompt Engineering Settings
-            new Setting(container)
-                .setName("Enable Prompt Engineering")
-                .setDesc("Use GPT-4 or Claude to craft optimized prompts that transform miniatures into epic, realistic characters. (~$0.02 per image)")
-                .addToggle((toggle) =>
-                    toggle
-                        .setValue(this.plugin.settings.enablePromptEngineering)
-                        .onChange(async (value) => {
-                            this.plugin.settings.enablePromptEngineering = value;
+        new Setting(container)
+            .setName("Image Style")
+            .setDesc("The art style used when generating AI images.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOptions(stylePresets)
+                    .setValue(isPreset ? currentStyle : "custom")
+                    .onChange(async (value) => {
+                        if (value === "custom") {
+                            showCustomInput(true);
+                        } else {
+                            this.plugin.settings.openAIDefaultStyle = value;
                             await this.plugin.saveSettings();
-                            // Refresh settings to show/hide dependent options
-                            this.generateOpenAISettings(container);
-                        })
-                );
+                            showCustomInput(false);
+                        }
+                    })
+            );
 
-            if (this.plugin.settings.enablePromptEngineering) {
-                new Setting(container)
-                    .setName("Prompt Provider")
-                    .setDesc("Choose which AI to use for crafting optimized prompts.")
-                    .addDropdown((dropdown) =>
-                        dropdown
-                            .addOptions({
-                                "gpt4": "GPT-4 (OpenAI)",
-                                "claude": "Claude (Anthropic)"
-                            })
-                            .setValue(this.plugin.settings.promptProvider)
-                            .onChange(async (value: "gpt4" | "claude") => {
-                                this.plugin.settings.promptProvider = value;
-                                await this.plugin.saveSettings();
-                            })
-                    );
+        customStyleSetting = new Setting(container)
+            .setName("Custom Style")
+            .setDesc("Enter your own style description (e.g. \"Studio Ghibli watercolor\").")
+            .addText((text) =>
+                text
+                    .setPlaceholder("Enter custom style...")
+                    .setValue(isPreset ? "" : currentStyle)
+                    .onChange(async (value) => {
+                        this.plugin.settings.openAIDefaultStyle = value.trim() || "Epic Fantasy Art";
+                        await this.plugin.saveSettings();
+                    })
+            );
+        showCustomInput(!isPreset);
 
-                new Setting(container)
-                    .setName(`${this.plugin.settings.promptProvider === "gpt4" ? "OpenAI" : "Anthropic"} API Key for Prompts`)
-                    .setDesc(
-                        createFragment((e) => {
-                            e.createSpan({
-                                text: `Enter your ${this.plugin.settings.promptProvider === "gpt4" ? "OpenAI" : "Anthropic"} API key for prompt engineering. `
-                            });
-                            e.createEl("a", {
-                                href: this.plugin.settings.promptProvider === "gpt4"
-                                    ? "https://platform.openai.com/api-keys"
-                                    : "https://console.anthropic.com/settings/keys",
-                                text: "Get your API key here"
-                            });
-                            e.createSpan({
-                                text: ". Note: You can use the same key as above if using the same provider."
-                            });
-                        })
-                    )
-                    .addText((text) =>
-                        text
-                            .setPlaceholder(this.plugin.settings.promptProvider === "gpt4" ? "sk-..." : "sk-ant-...")
-                            .setValue(this.plugin.settings.promptApiKey)
-                            .onChange(async (value) => {
-                                this.plugin.settings.promptApiKey = value.trim();
-                                await this.plugin.saveSettings();
-                            })
-                            .then((text) => {
-                                text.inputEl.type = "password";
-                            })
-                    );
-            }
-        }
+        // Image Quality
+        new Setting(container)
+            .setName("Image Quality")
+            .setDesc("Higher quality produces better images but costs more and takes longer.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOptions({
+                        "auto": "Auto (Recommended)",
+                        "low": "Low (Fastest)",
+                        "medium": "Medium",
+                        "high": "High (Best quality)"
+                    })
+                    .setValue(this.plugin.settings.openAIImageQuality)
+                    .onChange(async (value: "low" | "medium" | "high" | "auto") => {
+                        this.plugin.settings.openAIImageQuality = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
 
-        // Common Settings
-        // Art style is now fixed to "Epic Fantasy Art" to leverage FLUX's strengths
-        // FLUX.1 Dev excels at fantasy illustration style (D&D book art, concept art)
+        // Image Size
+        new Setting(container)
+            .setName("Image Size")
+            .setDesc("The dimensions of the generated image.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOptions({
+                        "1024x1024": "Square (1024x1024)",
+                        "1536x1024": "Landscape (1536x1024)",
+                        "1024x1536": "Portrait (1024x1536)",
+                        "auto": "Auto"
+                    })
+                    .setValue(this.plugin.settings.openAIImageSize)
+                    .onChange(async (value: "1024x1024" | "1536x1024" | "1024x1536" | "auto") => {
+                        this.plugin.settings.openAIImageSize = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
 
+        // Prompt Engineering
+        new Setting(container)
+            .setHeading()
+            .setName("Prompt Enhancement (Optional)")
+            .setDesc("Use GPT to craft optimized prompts for better image results. Uses the same OpenAI API key.");
+
+        new Setting(container)
+            .setName("Enable Prompt Engineering")
+            .setDesc("Use GPT to craft optimized prompts that transform miniatures into epic, realistic characters. Adds a small cost per image (~$0.02).")
+            .addToggle((toggle) =>
+                toggle
+                    .setValue(this.plugin.settings.enablePromptEngineering)
+                    .onChange(async (value) => {
+                        this.plugin.settings.enablePromptEngineering = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        // Health Variant Images
+        new Setting(container)
+            .setName("Generate Health Variants")
+            .setDesc("When generating AI images, also create hurt, bloodied, and dead variants for use with initiative trackers. Generates 4 images instead of 1 (4x API cost).")
+            .addToggle((toggle) =>
+                toggle
+                    .setValue(this.plugin.settings.generateHealthVariants)
+                    .onChange(async (value) => {
+                        this.plugin.settings.generateHealthVariants = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        // Image Save Folder
         let path: string;
         new Setting(container)
             .setName("Image Save Folder")
