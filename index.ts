@@ -24,6 +24,9 @@ export type TraitAbilitySkill = Trait | AbilitySkill;
 
 export interface Monster {
     image?: string;
+    image_hurt?: string;
+    image_bloodied?: string;
+    image_dead?: string;
     name: string;
     size: string;
     type: string;
@@ -163,9 +166,14 @@ export interface StatblockData {
     defaultLayoutsIntegrated: boolean;
     atomicWrite: boolean;
     openAIApiKey: string;
-    openAIImageStyles: string[];
     openAIDefaultStyle: string;
     openAIImageSaveFolder: string;
+    openAIImageQuality: "low" | "medium" | "high" | "auto";
+    openAIImageSize: "1024x1024" | "1536x1024" | "1024x1536" | "auto";
+    // Prompt Engineering Settings
+    enablePromptEngineering: boolean;
+    // Health Variant Settings
+    generateHealthVariants: boolean;
 }
 
 declare global {

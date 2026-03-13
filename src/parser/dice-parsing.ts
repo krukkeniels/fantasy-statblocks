@@ -33,22 +33,34 @@ try {
 
     for (const { id } of diceParsing) {
         const regex = regexes.get(id)!;
-        property = property.replaceAll(new RegExp(regex, "g"), (str) => {
-            return `<MATCHED_DICE><DICE_ID>${id}<END_DICE_ID>${str}<END_MATCHED_DICE>`;
-        });
+
+        // Split on existing tags to avoid nesting matches
+        const segments = property.split(/(<MATCHED_DICE>[\s\S]*?<END_MATCHED_DICE>)/);
+
+        property = segments.map((segment, index) => {
+            // Odd indices are already-tagged segments (captured by the regex group)
+            if (index % 2 === 1) {
+                return segment; // Don't modify already-tagged segments
+            }
+
+            // Apply regex to untagged segments (even indices)
+            return segment.replaceAll(new RegExp(regex, "g"), (str) => {
+                return `<MATCHED_DICE><DICE_ID>${id}<END_DICE_ID>${str}<END_MATCHED_DICE>`;
+            });
+        }).join('');
     }
 
     const result = [];
     for (const line of property.split(
-        /(<MATCHED_DICE>.+?<END_MATCHED_DICE>)/
+        /(<MATCHED_DICE>[\s\S]+?<END_MATCHED_DICE>)/
     )) {
-        if (!/<MATCHED_DICE>.+?<END_MATCHED_DICE>/.test(line)) {
+        if (!/<MATCHED_DICE>[\s\S]+?<END_MATCHED_DICE>/.test(line)) {
             result.push(line);
             continue;
         }
         const [, id, prop] =
             line.match(
-                /<MATCHED_DICE><DICE_ID>(.+?)<END_DICE_ID>(.+)<END_MATCHED_DICE>/
+                /<MATCHED_DICE><DICE_ID>([\s\S]+?)<END_DICE_ID>([\s\S]+)<END_MATCHED_DICE>/
             ) ?? [];
         if (!id || !prop) {
             result.push(line);

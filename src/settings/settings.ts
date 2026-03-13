@@ -78,12 +78,13 @@ export default class StatblockSettingTab extends PluginSettingTab {
         container.empty();
         new Setting(container).setHeading().setName("AI Image Generation");
 
+        // OpenAI API Key
         new Setting(container)
             .setName("OpenAI API Key")
             .setDesc(
                 createFragment((e) => {
                     e.createSpan({
-                        text: "Enter your OpenAI API key to enable AI image generation for creatures. "
+                        text: "Enter your OpenAI API key. Used for image generation and prompt engineering. "
                     });
                     e.createEl("a", {
                         href: "https://platform.openai.com/api-keys",
@@ -107,27 +108,132 @@ export default class StatblockSettingTab extends PluginSettingTab {
                     })
             );
 
+        // Image Style
+        const stylePresets: Record<string, string> = {
+            "Epic Fantasy Art": "Epic Fantasy Art",
+            "Dark Fantasy": "Dark Fantasy",
+            "Anime / Manga": "Anime / Manga",
+            "Oil Painting": "Oil Painting",
+            "Watercolor": "Watercolor",
+            "Comic Book": "Comic Book",
+            "Realistic / Photographic": "Realistic / Photographic",
+            "Pixel Art": "Pixel Art",
+            "Medieval Woodcut": "Medieval Woodcut",
+            "custom": "Custom..."
+        };
+        const currentStyle = this.plugin.settings.openAIDefaultStyle;
+        const isPreset = currentStyle in stylePresets && currentStyle !== "custom";
+
+        let customStyleSetting: Setting | null = null;
+
+        const showCustomInput = (show: boolean) => {
+            if (customStyleSetting) {
+                customStyleSetting.settingEl.toggle(show);
+            }
+        };
+
         new Setting(container)
-            .setName("Default Art Style")
-            .setDesc("Choose the default art style for AI-generated images.")
+            .setName("Image Style")
+            .setDesc("The art style used when generating AI images.")
             .addDropdown((dropdown) =>
                 dropdown
-                    .addOptions(
-                        this.plugin.settings.openAIImageStyles.reduce(
-                            (acc, style) => {
-                                acc[style] = style;
-                                return acc;
-                            },
-                            {} as Record<string, string>
-                        )
-                    )
-                    .setValue(this.plugin.settings.openAIDefaultStyle)
+                    .addOptions(stylePresets)
+                    .setValue(isPreset ? currentStyle : "custom")
                     .onChange(async (value) => {
-                        this.plugin.settings.openAIDefaultStyle = value;
+                        if (value === "custom") {
+                            showCustomInput(true);
+                        } else {
+                            this.plugin.settings.openAIDefaultStyle = value;
+                            await this.plugin.saveSettings();
+                            showCustomInput(false);
+                        }
+                    })
+            );
+
+        customStyleSetting = new Setting(container)
+            .setName("Custom Style")
+            .setDesc("Enter your own style description (e.g. \"Studio Ghibli watercolor\").")
+            .addText((text) =>
+                text
+                    .setPlaceholder("Enter custom style...")
+                    .setValue(isPreset ? "" : currentStyle)
+                    .onChange(async (value) => {
+                        this.plugin.settings.openAIDefaultStyle = value.trim() || "Epic Fantasy Art";
+                        await this.plugin.saveSettings();
+                    })
+            );
+        showCustomInput(!isPreset);
+
+        // Image Quality
+        new Setting(container)
+            .setName("Image Quality")
+            .setDesc("Higher quality produces better images but costs more and takes longer.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOptions({
+                        "auto": "Auto (Recommended)",
+                        "low": "Low (Fastest)",
+                        "medium": "Medium",
+                        "high": "High (Best quality)"
+                    })
+                    .setValue(this.plugin.settings.openAIImageQuality)
+                    .onChange(async (value: "low" | "medium" | "high" | "auto") => {
+                        this.plugin.settings.openAIImageQuality = value;
                         await this.plugin.saveSettings();
                     })
             );
 
+        // Image Size
+        new Setting(container)
+            .setName("Image Size")
+            .setDesc("The dimensions of the generated image.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOptions({
+                        "1024x1024": "Square (1024x1024)",
+                        "1536x1024": "Landscape (1536x1024)",
+                        "1024x1536": "Portrait (1024x1536)",
+                        "auto": "Auto"
+                    })
+                    .setValue(this.plugin.settings.openAIImageSize)
+                    .onChange(async (value: "1024x1024" | "1536x1024" | "1024x1536" | "auto") => {
+                        this.plugin.settings.openAIImageSize = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        // Prompt Engineering
+        new Setting(container)
+            .setHeading()
+            .setName("Prompt Enhancement (Optional)")
+            .setDesc("Use GPT to craft optimized prompts for better image results. Uses the same OpenAI API key.");
+
+        new Setting(container)
+            .setName("Enable Prompt Engineering")
+            .setDesc("Use GPT to craft optimized prompts that transform miniatures into epic, realistic characters. Adds a small cost per image (~$0.02).")
+            .addToggle((toggle) =>
+                toggle
+                    .setValue(this.plugin.settings.enablePromptEngineering)
+                    .onChange(async (value) => {
+                        this.plugin.settings.enablePromptEngineering = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        // Health Variant Images
+        new Setting(container)
+            .setName("Generate Health Variants")
+            .setDesc("When generating AI images, also create hurt, bloodied, and dead variants for use with initiative trackers. Generates 4 images instead of 1 (4x API cost).")
+            .addToggle((toggle) =>
+                toggle
+                    .setValue(this.plugin.settings.generateHealthVariants)
+                    .onChange(async (value) => {
+                        this.plugin.settings.generateHealthVariants = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        // Image Save Folder
         let path: string;
         new Setting(container)
             .setName("Image Save Folder")

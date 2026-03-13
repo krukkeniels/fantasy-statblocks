@@ -59,15 +59,14 @@ const DEFAULT_DATA: StatblockData = {
     defaultLayoutsIntegrated: false,
     atomicWrite: false,
     openAIApiKey: "",
-    openAIImageStyles: [
-        "Fantasy Art",
-        "Digital Painting",
-        "Realistic",
-        "Comic Book Style",
-        "Watercolor"
-    ],
-    openAIDefaultStyle: "Fantasy Art",
-    openAIImageSaveFolder: "Statblocks/Images"
+    openAIDefaultStyle: "Epic Fantasy Art",
+    openAIImageSaveFolder: "Statblocks/Images",
+    openAIImageQuality: "auto",
+    openAIImageSize: "1024x1024",
+    // Prompt Engineering Settings
+    enablePromptEngineering: false,
+    // Health Variant Settings
+    generateHealthVariants: false
 };
 
 export default class StatBlockPlugin extends Plugin {
